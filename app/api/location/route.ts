@@ -1,9 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import fs from "fs/promises";
-import path from "path";
-
-const DATA_DIR = path.join(process.cwd(), "data");
-const DATA_FILE = path.join(DATA_DIR, "locations.json");
+import { ensureSchema, getDb } from "@/lib/db";
 
 export interface SavedLocation {
   id: string;
@@ -16,30 +12,6 @@ export interface SavedLocation {
   createdAt: string;
 }
 
-async function readLocations(): Promise<SavedLocation[]> {
-  try {
-    const raw = await fs.readFile(DATA_FILE, "utf-8");
-    const parsed: unknown = JSON.parse(raw);
-    return Array.isArray(parsed) ? (parsed as SavedLocation[]) : [];
-  } catch (err: unknown) {
-    if (
-      typeof err === "object" &&
-      err !== null &&
-      "code" in err &&
-      (err as { code?: unknown }).code === "ENOENT"
-    )
-      return [];
-    throw err;
-  }
-}
-
-async function writeLocations(locations: SavedLocation[]): Promise<void> {
-  await fs.mkdir(DATA_DIR, { recursive: true });
-  const tmp = `${DATA_FILE}.tmp`;
-  await fs.writeFile(tmp, JSON.stringify(locations, null, 2), "utf-8");
-  await fs.rename(tmp, DATA_FILE);
-}
-
 const pickNumber = (value: unknown, fallback: number): number => {
   if (typeof value === "number" && Number.isFinite(value)) return value;
   return fallback;
@@ -50,6 +22,14 @@ const pickOptionalNumber = (value: unknown): number | undefined =>
 
 const pickString = (value: unknown, fallback: string): string =>
   typeof value === "string" ? value : fallback;
+
+function clientIp(request: NextRequest): string {
+  const forwarded = request.headers.get("x-forwarded-for");
+  if (forwarded) return forwarded.split(",")[0]?.trim() ?? "";
+  const real = request.headers.get("x-real-ip");
+  if (real) return real.trim();
+  return "";
+}
 
 export async function POST(request: NextRequest): Promise<NextResponse> {
   try {
@@ -67,22 +47,24 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
       return NextResponse.json({ error: "Missing lat/lng in request body" }, { status: 400 });
     }
 
-    const location: SavedLocation = {
-      id: `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
-      lat,
-      lng,
-      accuracy: pickOptionalNumber(coords?.accuracy),
-      source: pickString(coords?.source, "gps") as SavedLocation["source"],
-      userAgent: pickString(coords?.userAgent, ""),
-      ip: pickString(coords?.ip, ""),
-      createdAt: new Date().toISOString(),
-    };
+    const id = `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+    const accuracy = pickOptionalNumber(coords?.accuracy) ?? null;
+    const source =
+      pickString(coords?.source, "gps") === "ip" ? "ip" : "gps";
+    const userAgent =
+      pickString(coords?.userAgent, "") ||
+      request.headers.get("user-agent") ||
+      "";
+    const ip = pickString(coords?.ip, "") || clientIp(request);
 
-    const locations = await readLocations();
-    locations.unshift(location);
-    await writeLocations(locations);
+    await ensureSchema();
+    const sql = getDb();
+    await sql`
+      INSERT INTO locations (id, lat, lng, accuracy, source, user_agent, ip)
+      VALUES (${id}, ${lat}, ${lng}, ${accuracy}, ${source}, ${userAgent}, ${ip})
+    `;
 
-    return NextResponse.json({ ok: true, id: location.id });
+    return NextResponse.json({ ok: true, id });
   } catch (err: unknown) {
     console.error("Failed to save location:", err);
     return NextResponse.json(
@@ -91,3 +73,26 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
     );
   }
 }
+
+export async function GET(): Promise<NextResponse> {
+  try {
+    await ensureSchema();
+    const sql = getDb();
+    const rows = await sql`
+      SELECT id, lat, lng, accuracy, source,
+             user_agent AS "userAgent", ip,
+             created_at AS "createdAt"
+      FROM locations
+      ORDER BY created_at DESC
+      LIMIT 100
+    `;
+    return NextResponse.json({ ok: true, locations: rows });
+  } catch (err: unknown) {
+    console.error("Failed to read locations:", err);
+    return NextResponse.json(
+      { error: "Failed to read locations" },
+      { status: 500 }
+    );
+  }
+}
+

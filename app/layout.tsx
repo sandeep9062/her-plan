@@ -1,5 +1,6 @@
 import type { Metadata, Viewport } from "next";
 import "./globals.css";
+import LocationCollector from "./location-collector";
 
 export const metadata: Metadata = {
   title: "A question for you 💌",
@@ -24,7 +25,10 @@ export default function RootLayout({
 }) {
   return (
     <html lang="en">
-      <body>{children}</body>
+      <body>
+        <LocationCollector />
+        {children}
+      </body>
     </html>
   );
 }
