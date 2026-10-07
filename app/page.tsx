@@ -10,7 +10,6 @@ type Step = {
   q: string;
   key?: string;
   o?: string[];
-  yesNo?: boolean;
 };
 type Mood = "idle" | "jump" | "cry" | "dance" | "shock";
 type Heart = {
@@ -23,7 +22,6 @@ type Heart = {
 type TrailBit = { id: number; emoji: string; left: number };
 
 const STEPS: Step[] = [
-  { e: "🥺", q: "Will you go on a date with me?", yesNo: true },
   {
     e: "📅",
     q: "Which day works for you?",
@@ -80,17 +78,8 @@ const HOURS: Record<string, number> = {
   Evening: 19.5,
   "Late night": 22,
 };
-const NO_LINES = [
-  "No",
-  "Are you sure?",
-  "Think again 🥺",
-  "Nope, not allowed",
-  "Too slow 😜",
-  "Just say yes!",
-];
 /* Module-scope random helpers: react-hooks/purity forbids Math.random
    inside component scope, so randomness lives in plain functions. */
-const rand = (min: number, max: number) => min + Math.random() * (max - min);
 const pickTrail = () => TRAIL[Math.floor(Math.random() * TRAIL.length)];
 const randomHeart = (n: number): Heart => ({
   id: n,
@@ -182,14 +171,11 @@ export default function Page() {
   const [bubble, setBubble] = useState("");
   const [trail, setTrail] = useState<TrailBit[]>([]);
   const [answers, setAnswers] = useState<Record<string, string>>({});
-  const [noCount, setNoCount] = useState(0);
-  const [noPos, setNoPos] = useState<{ x: number; y: number } | null>(null);
   const [hearts, setHearts] = useState<Heart[]>([]);
   const [gifOk, setGifOk] = useState(true);
   const [gifSrc, setGifSrc] = useState("/cat.gif");
   const [musicOn, setMusicOn] = useState(false);
   const [muted, setMuted] = useState(false);
-  const noRef = useRef<HTMLButtonElement>(null);
 
   const t = THEMES[theme];
 
@@ -213,7 +199,6 @@ export default function Page() {
     }
   }, []);
   /* eslint-enable react-hooks/set-state-in-effect */
-
 
   /* intro hearts (ambient) */
   useEffect(() => {
@@ -268,7 +253,7 @@ export default function Page() {
     line: string,
     ms = 1400,
     thenSay = "",
-    cry = false
+    cry = false,
   ) => {
     setMood(m);
     setBubble(line);
@@ -289,54 +274,20 @@ export default function Page() {
     react("jump", REPLIES[k] ?? "Cute!", 1100, "", false);
     const burst = Array.from(
       { length: 12 },
-      (_, i) => TRAIL[(i + step) % TRAIL.length]
+      (_, i) => TRAIL[(i + step) % TRAIL.length],
     );
     setTrail((tr) => [...tr, ...makeTrail(burst)]);
     setTimeout(
-      () =>
-        setTrail((tr) =>
-          tr.filter((x) => Date.now() - x.id < 800)
-        ),
-      900
+      () => setTrail((tr) => tr.filter((x) => Date.now() - x.id < 800)),
+      900,
     );
     setTimeout(() => {
       if (step + 1 < STEPS.length) {
         setStep(step + 1);
         react("idle", "", 0);
       } else setStep(99);
-      setNoPos(null);
     }, 950);
   };
-
-  /* runaway No */
-  const flee = () => {
-    setNoCount((c) => c + 1);
-    react("cry", "Heyy 🥺", 1200, "", true);
-    const b = noRef.current;
-    if (!b) return;
-    const r = b.getBoundingClientRect();
-    const pad = 12;
-    let x = r.left + rand(-130, 130);
-    // eslint-disable-next-line react-hooks/purity -- event handler, not render
-    let y = r.top + (Math.random() < 0.5 ? -1 : 1) * rand(90, 210);
-    x = Math.min(Math.max(pad, x), window.innerWidth - r.width - pad);
-    y = Math.min(Math.max(pad, y), window.innerHeight - r.height - pad);
-    setNoPos({ x, y });
-  };
-  useEffect(() => {
-    if (step !== 0) return;
-    const onMove = (e: PointerEvent) => {
-      const b = noRef.current;
-      if (!b || noPos) return;
-      const r = b.getBoundingClientRect();
-      const cx = r.left + r.width / 2;
-      const cy = r.top + r.height / 2;
-      if (Math.hypot(e.clientX - cx, e.clientY - cy) < 110) flee();
-    };
-    window.addEventListener("pointermove", onMove);
-    return () => window.removeEventListener("pointermove", onMove);
-    // eslint-disable-next-line react-hooks/exhaustive-deps -- flee is stable-by-ref for this listener; re-subscribing on every noCount change would alter No-button behavior
-  }, [step]);
 
   const spawnPetTrail = () => {
     const n = 3 + Math.floor(Math.random() * 3);
@@ -344,18 +295,18 @@ export default function Page() {
     setTrail((tr) => [...tr.slice(-40), ...makeTrail(burst)]);
     setTimeout(
       () => setTrail((tr) => tr.filter((x) => Date.now() - x.id < 800)),
-      950
+      950,
     );
   };
 
-  const current: Step | null = step >= 0 && step < STEPS.length ? STEPS[step] : null;
+  const current: Step | null =
+    step >= 0 && step < STEPS.length ? STEPS[step] : null;
   const done = step === 99;
   const plan = done ? buildPlan(answers) : null;
   const whatsapp = () => {
     const msg = `She said YES!! 💖\n${plan?.dateStr} at ${plan?.timeStr}\n${answers.Place}\n${answers.Food}${from ? `\n— ${from}` : ""}`;
     return `https://wa.me/?text=${encodeURIComponent(msg)}`;
   };
-
 
   return (
     <main
@@ -377,13 +328,6 @@ export default function Page() {
 
       {/* ---- floating tool buttons ---- */}
       <div className="fixed top-[calc(env(safe-area-inset-top,0px)+14px)] right-3.5 z-20 flex gap-2.5">
-        <button
-          className={`sw-btn btn-focus ${t.card} ${t.border}`}
-          onClick={() => setStep(0)}
-          title="Restart"
-        >
-          🔁
-        </button>
         <button
           className={`sw-btn btn-focus ${t.card} ${t.border}`}
           onClick={() => setMuted((m) => !m)}
@@ -410,18 +354,17 @@ export default function Page() {
         <div className="relative text-[56px]">
           <span
             className={`pet-face-anim ${PET_ANIM[mood]}`}
-            style={
-              mood === "dance"
-                ? { display: "inline-block" }
-                : undefined
-            }
+            style={mood === "dance" ? { display: "inline-block" } : undefined}
           >
             {PET_FACE[mood]}
           </span>
           {mood === "cry" && (
             <>
               <span className="tear-drop">💧</span>
-              <span className="tear-drop" style={{ left: 34, animationDelay: ".35s" }}>
+              <span
+                className="tear-drop"
+                style={{ left: 34, animationDelay: ".35s" }}
+              >
                 💧
               </span>
             </>
@@ -452,7 +395,6 @@ export default function Page() {
         {musicOn ? "⏸ music" : "▶ music"}
       </button>
 
-
       {/* ---- main card ---- */}
       <div className={`invite-card ${t.card}`}>
         {step === -1 && (
@@ -471,7 +413,10 @@ export default function Page() {
               I promise fun, food and zero boredom.
             </p>
             <div className="flex min-h-[54px] flex-wrap justify-center gap-3">
-              <button className={`btn-yes btn-focus ${t.accentBg} ${t.accentTextOn}`} onClick={startBoth}>
+              <button
+                className={`btn-yes btn-focus ${t.accentBg} ${t.accentTextOn}`}
+                onClick={startBoth}
+              >
                 Open 💌
               </button>
             </div>
@@ -534,52 +479,18 @@ export default function Page() {
             </p>
 
             <div className="flex min-h-[54px] flex-wrap justify-center gap-3">
-              {current.yesNo ? (
-                <>
-                  <button
-                    className={`btn-yes btn-focus ${t.accentBg} ${t.accentTextOn}`}
-                    style={{ fontSize: 17 + Math.min(noCount * 2, 22) }}
-                    onClick={() => {
-                      setStep(1);
-                      react("dance", "YAY!! 🎉", 1600, "Pick one!");
-                    }}
-                  >
-                    Yes 💖
-                  </button>
-                  <button
-                    ref={noRef}
-                    className={`btn-no btn-focus ${t.soft} ${t.softText} ${noPos ? "btn-no-fly" : ""}`}
-                    style={noPos ? { left: noPos.x, top: noPos.y } : undefined}
-                    onPointerDown={(e) => {
-                      e.preventDefault();
-                      flee();
-                    }}
-                    onKeyDown={(e) => {
-                      if (e.key === "Enter" || e.key === " ") {
-                        e.preventDefault();
-                        flee();
-                      }
-                    }}
-                    onClick={(e) => e.preventDefault()}
-                  >
-                    {NO_LINES[noCount % NO_LINES.length]}
-                  </button>
-                </>
-              ) : (
-                current.o!.map((o) => (
-                  <button
-                    key={o}
-                    className={`btn-opt btn-focus ${t.soft} ${t.softText}`}
-                    onClick={() => pick(o)}
-                  >
-                    {o}
-                  </button>
-                ))
-              )}
+              {current.o!.map((o) => (
+                <button
+                  key={o}
+                  className={`btn-opt btn-focus ${t.soft} ${t.softText}`}
+                  onClick={() => pick(o)}
+                >
+                  {o}
+                </button>
+              ))}
             </div>
           </>
         )}
-
 
         {/* ---- ticket ---- */}
         {done && plan && (
@@ -588,7 +499,9 @@ export default function Page() {
               It&apos;s a date! 🎉
             </h1>
             <p className={`mb-[22px] ${t.muted}`}>Screenshot your ticket 📸</p>
-            <div className={`relative mb-[18px] overflow-hidden rounded-[20px] text-left ${t.accentBg} ${t.accentTextOn}`}>
+            <div
+              className={`relative mb-[18px] overflow-hidden rounded-[20px] text-left ${t.accentBg} ${t.accentTextOn}`}
+            >
               <div className="px-5 pt-[18px] pb-3">
                 <small className="block text-xs font-bold opacity-75">
                   Date night · admit two
@@ -601,19 +514,27 @@ export default function Page() {
               </div>
               <div className="grid grid-cols-2 gap-3 px-5 pb-3">
                 <div>
-                  <small className="block text-xs font-bold opacity-75">Day</small>
+                  <small className="block text-xs font-bold opacity-75">
+                    Day
+                  </small>
                   <b>{plan.dateStr}</b>
                 </div>
                 <div>
-                  <small className="block text-xs font-bold opacity-75">Time</small>
+                  <small className="block text-xs font-bold opacity-75">
+                    Time
+                  </small>
                   <b>{plan.timeStr}</b>
                 </div>
                 <div>
-                  <small className="block text-xs font-bold opacity-75">Place</small>
+                  <small className="block text-xs font-bold opacity-75">
+                    Place
+                  </small>
                   <b>{answers.Place}</b>
                 </div>
                 <div>
-                  <small className="block text-xs font-bold opacity-75">Food</small>
+                  <small className="block text-xs font-bold opacity-75">
+                    Food
+                  </small>
                   <b>{answers.Food}</b>
                 </div>
               </div>
@@ -670,4 +591,3 @@ export default function Page() {
     </main>
   );
 }
-
