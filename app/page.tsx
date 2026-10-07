@@ -231,29 +231,38 @@ export default function Page() {
   }, []);
 
   /* music */
-  const audio = useRef<HTMLAudioElement | null>(null);
+  const audioRef = useRef<HTMLAudioElement | null>(null);
+
   useEffect(() => {
-    audio.current = new Audio("/music.wav");
-    audio.current.loop = true;
-    return () => audio.current?.pause();
+    const audio = audioRef.current;
+    if (!audio) return;
+    audio.loop = true;
+    audio.preload = "auto";
+    return () => {
+      audio.pause();
+      audio.src = "";
+    };
   }, []);
+
   const toggleMusic = async () => {
-    if (!audio.current) return;
-    audio.current.muted = muted;
+    const audio = audioRef.current;
+    if (!audio) return;
     if (musicOn) {
-      audio.current.pause();
+      audio.pause();
       setMusicOn(false);
-    } else {
-      try {
-        await audio.current.play();
-        setMusicOn(true);
-      } catch {
-        /* autoplay policy */
-      }
+      return;
+    }
+    audio.muted = false;
+    try {
+      await audio.play();
+      setMusicOn(true);
+    } catch {
+      /* autoplay policy — requires a user gesture */
     }
   };
+
   useEffect(() => {
-    if (audio.current) audio.current.muted = muted;
+    if (audioRef.current) audioRef.current.muted = muted;
   }, [muted]);
 
   /* runaway No */
@@ -353,6 +362,14 @@ export default function Page() {
     <main
       className={`relative grid min-h-screen min-h-dvh place-items-center overflow-x-hidden px-5 pt-[70px] pb-[120px] ${t.page}`}
     >
+      <audio
+        ref={audioRef}
+        src="/music.wav"
+        loop
+        playsInline
+        style={{ display: "none" }}
+        aria-hidden="true"
+      />
       {hearts.map((h) => (
         <span
           key={h.id}
@@ -458,22 +475,24 @@ export default function Page() {
               ))}
             </div>
 
-            {step === 0 && gifOk ? (
-              // eslint-disable-next-line @next/next/no-img-element
-              <img
-                className="mb-2.5 h-[min(140px,22vh)] w-auto max-w-full rounded-[18px] object-cover max-lg:h-20"
-                src={gifSrc}
-                alt="A cat pleading"
-                onError={() => setGifOk(false)}
-              />
-            ) : (
-              <span
-                className="mb-2.5 block text-[64px] leading-none max-sm:text-[40px]"
-                aria-hidden="true"
-              >
-                {current.e}
-              </span>
-            )}
+            <div className="flex justify-center">
+              {step === 0 && gifOk ? (
+                // eslint-disable-next-line @next/next/no-img-element
+                <img
+                  className="my-3 h-[min(140px,22vh)] w-auto max-w-full rounded-[18px] object-cover max-lg:h-20"
+                  src={gifSrc}
+                  alt="A cat pleading"
+                  onError={() => setGifOk(false)}
+                />
+              ) : (
+                <span
+                  className="my-3 block text-[64px] leading-none max-sm:text-[40px]"
+                  aria-hidden="true"
+                >
+                  {current.e}
+                </span>
+              )}
+            </div>
 
             <h1 className="mx-1.5 my-2 font-[Georgia,'Fraunces',serif] text-[clamp(26px,6vw,34px)] leading-[1.15]">
               {name && step === 0 ? (
