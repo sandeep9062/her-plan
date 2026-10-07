@@ -37,6 +37,14 @@ body {
     transform: translateY(-34px) scale(1.1);
   }
 }
+@keyframes shock {
+  0% {
+    transform: translateY(0) scale(1.05);
+  }
+  100% {
+    transform: translateY(-20px) scale(1.13);
+  }
+}
 @keyframes shake {
   25% {
     transform: translateX(-3px) rotate(-4deg);
@@ -299,6 +307,10 @@ body {
 
 @utility pet-jump {
   animation: jump 0.6s ease;
+}
+
+@utility pet-shock {
+  animation: shock 0.45s ease-in-out infinite alternate;
 }
 
 @utility pet-cry {

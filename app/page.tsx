@@ -104,7 +104,7 @@ const PET_ANIM: Record<Mood, string> = {
   jump: "pet-jump",
   cry: "pet-cry",
   dance: "pet-dance",
-  shock: "pet-jump",
+  shock: "pet-shock",
 };
 const makeTrail = (emojis: string[]): TrailBit[] =>
   emojis.map((emoji, i) => ({
@@ -179,7 +179,7 @@ export default function Page() {
   const [from, setFrom] = useState("");
   const [theme, setTheme] = useState<Theme>("pink");
   const [mood, setMood] = useState<Mood>("idle");
-  const [bubble, setBubble] = useState("");
+  const [bubble, setBubble] = useState("Say yes, please? 🥺");
   const [trail, setTrail] = useState<TrailBit[]>([]);
   const [answers, setAnswers] = useState<Record<string, string>>({});
   const [noCount, setNoCount] = useState(0);
@@ -265,10 +265,8 @@ export default function Page() {
     if (audioRef.current) audioRef.current.muted = muted;
   }, [muted]);
 
-  /* runaway No */
+  /* runaway No: cursor moves near the No button -> it runs away */
   const flee = () => {
-    setNoCount((c) => c + 1);
-    react("cry", "Heyy 🥺", 1200, "", true);
     const b = noRef.current;
     if (!b) return;
     const r = b.getBoundingClientRect();
@@ -279,6 +277,28 @@ export default function Page() {
     x = Math.min(Math.max(pad, x), window.innerWidth - r.width - pad);
     y = Math.min(Math.max(pad, y), window.innerHeight - r.height - pad);
     setNoPos({ x, y });
+  };
+
+  /* actual "No" presses: pet reacts by no-count */
+  const pressNo = () => {
+    const c1 = noCount + 1;
+    if (c1 >= 6) react("cry", "Why are you like this 😭", 2200, "");
+    else if (c1 >= 3) react("cry", "Don't break my heart", 2200, "");
+    else react("shock", "Hey! Click Yes!", 1400, "");
+    const b = noRef.current;
+    if (!b) {
+      setNoCount(c1);
+      return;
+    }
+    const r = b.getBoundingClientRect();
+    const pad = 12;
+    let x = r.left + rand(-130, 130);
+    // eslint-disable-next-line react-hooks/purity -- event handler, not render
+    let y = r.top + (Math.random() < 0.5 ? -1 : 1) * rand(90, 210);
+    x = Math.min(Math.max(pad, x), window.innerWidth - r.width - pad);
+    y = Math.min(Math.max(pad, y), window.innerHeight - r.height - pad);
+    setNoPos({ x, y });
+    setNoCount(c1);
   };
   useEffect(() => {
     if (step !== 0) return;
@@ -297,13 +317,7 @@ export default function Page() {
 
   /* reactions */
   const timers = useRef<number[]>([]);
-  const react = (
-    m: Mood,
-    line: string,
-    ms = 1400,
-    thenSay = "",
-    cry = false,
-  ) => {
+  const react = (m: Mood, line: string, ms = 1400, thenSay = "") => {
     setMood(m);
     setBubble(line);
     timers.current.forEach(clearTimeout);
@@ -314,13 +328,12 @@ export default function Page() {
           setBubble(thenSay);
         }, ms),
       ];
-    if (cry) setMood("cry");
   };
   const pick = (o: string) => {
     const k = STEPS[step].key!;
     const a = { ...answers, [k]: o };
     setAnswers(a);
-    react("jump", REPLIES[k] ?? "Cute!", 1100, "", false);
+    react("jump", REPLIES[k] ?? "Cute!", 1100, "");
     const burst = Array.from(
       { length: 12 },
       (_, i) => TRAIL[(i + step) % TRAIL.length],
@@ -334,7 +347,10 @@ export default function Page() {
       if (step + 1 < STEPS.length) {
         setStep(step + 1);
         react("idle", "", 0);
-      } else setStep(99);
+      } else {
+        react("dance", "It's a date!! 💖", 0);
+        setStep(99);
+      }
       setNoPos(null);
     }, 950);
   };
@@ -528,12 +544,12 @@ export default function Page() {
                     style={noPos ? { left: noPos.x, top: noPos.y } : undefined}
                     onPointerDown={(e) => {
                       e.preventDefault();
-                      flee();
+                      pressNo();
                     }}
                     onKeyDown={(e) => {
                       if (e.key === "Enter" || e.key === " ") {
                         e.preventDefault();
-                        flee();
+                        pressNo();
                       }
                     }}
                     onClick={(e) => e.preventDefault()}
@@ -560,7 +576,7 @@ export default function Page() {
         {done && plan && (
           <>
             <h1 className="mx-1.5 my-2 font-[Georgia,'Fraunces',serif] text-[clamp(26px,6vw,34px)] leading-[1.15]">
-              It&apos;s a date! 🎉
+              It&apos;s a date!! 💖
             </h1>
             <p className={`mb-[22px] ${t.muted}`}>Screenshot your ticket 📸</p>
             <div
