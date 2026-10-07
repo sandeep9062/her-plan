@@ -162,6 +162,7 @@ export default function Page() {
   const [noPos, setNoPos] = useState<{ x: number; y: number } | null>(null);
   const [hearts, setHearts] = useState<Heart[]>([]);
   const [gifOk, setGifOk] = useState(true);
+  const [gifSrc, setGifSrc] = useState("/cat.gif");
   const [musicOn, setMusicOn] = useState(false);
   const [muted, setMuted] = useState(false);
   const noRef = useRef<HTMLButtonElement>(null);
@@ -193,15 +194,26 @@ export default function Page() {
   const current = STEPS[step];
   const plan = done ? buildPlan(answers) : null;
 
-  /* url params: ?name=Priya&from=Rahul&theme=midnight */
+  /* url params: ?name=Priya&from=Rahul&theme=midnight&gif=https://... */
+  /* Mount-only sync from window.location (no useSearchParams, so no Suspense needed). */
+  /* eslint-disable react-hooks/set-state-in-effect -- intentional one-time param hydration on mount */
   useEffect(() => {
     const p = new URLSearchParams(window.location.search);
-    setName((p.get("name") || "").trim());
-    setFrom((p.get("from") || "").trim());
+    setName((p.get("name") || "").trim().slice(0, 30));
+    setFrom((p.get("from") || "").trim().slice(0, 30));
     const t = p.get("theme");
     if (t === "pink" || t === "midnight" || t === "pastel") setTheme(t);
-
+    const g = p.get("gif");
+    if (g) {
+      try {
+        const u = new URL(g);
+        if (u.protocol === "https:") setGifSrc(g);
+      } catch {
+        /* ignore bad gif param — keep default cat */
+      }
+    }
   }, []);
+  /* eslint-enable react-hooks/set-state-in-effect */
 
 
   useEffect(() => {
@@ -403,6 +415,7 @@ export default function Page() {
     };
     window.addEventListener("pointermove", onMove);
     return () => window.removeEventListener("pointermove", onMove);
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- flee is stable-by-ref for this listener; re-subscribing on every noCount change would alter No-button behavior
   }, [step]);
 
   /* sad reactions */
@@ -500,7 +513,7 @@ export default function Page() {
               // eslint-disable-next-line @next/next/no-img-element
               <img
                 className="gif"
-                src="/cat.gif"
+                src={gifSrc}
                 alt="A cat pleading"
                 onError={() => setGifOk(false)}
               />

@@ -19,10 +19,16 @@ export interface SavedLocation {
 async function readLocations(): Promise<SavedLocation[]> {
   try {
     const raw = await fs.readFile(DATA_FILE, "utf-8");
-    const parsed = JSON.parse(raw);
-    return Array.isArray(parsed) ? parsed : [];
-  } catch (err: any) {
-    if (err && err.code === "ENOENT") return [];
+    const parsed: unknown = JSON.parse(raw);
+    return Array.isArray(parsed) ? (parsed as SavedLocation[]) : [];
+  } catch (err: unknown) {
+    if (
+      typeof err === "object" &&
+      err !== null &&
+      "code" in err &&
+      (err as { code?: unknown }).code === "ENOENT"
+    )
+      return [];
     throw err;
   }
 }
@@ -33,9 +39,6 @@ async function writeLocations(locations: SavedLocation[]): Promise<void> {
   await fs.writeFile(tmp, JSON.stringify(locations, null, 2), "utf-8");
   await fs.rename(tmp, DATA_FILE);
 }
-
-const isPlainObject = (value: unknown): value is Record<string, unknown> =>
-  typeof value === "object" && value !== null && !Array.isArray(value);
 
 const pickNumber = (value: unknown, fallback: number): number => {
   if (typeof value === "number" && Number.isFinite(value)) return value;
@@ -50,10 +53,13 @@ const pickString = (value: unknown, fallback: string): string =>
 
 export async function POST(request: NextRequest): Promise<NextResponse> {
   try {
-    const body = await request.json();
+    const body: unknown = await request.json();
 
     // Accept either { lat, lng, ... } or { latitude, longitude, ... }
-    const coords = body as Record<string, unknown> | null;
+    const coords =
+      typeof body === "object" && body !== null
+        ? (body as Record<string, unknown>)
+        : null;
     const lat = pickNumber(coords?.lat ?? coords?.latitude, NaN);
     const lng = pickNumber(coords?.lng ?? coords?.longitude, NaN);
 
@@ -77,7 +83,7 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
     await writeLocations(locations);
 
     return NextResponse.json({ ok: true, id: location.id });
-  } catch (err: any) {
+  } catch (err: unknown) {
     console.error("Failed to save location:", err);
     return NextResponse.json(
       { error: "Failed to save location" },
