@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
+import Link from "next/link";
 import { THEMES, THEME_LIST, isTheme, type Theme } from "@/lib/theme";
 
 /* ---------- config ---------- */
@@ -232,7 +233,7 @@ export default function Page() {
   /* music */
   const audio = useRef<HTMLAudioElement | null>(null);
   useEffect(() => {
-    audio.current = new Audio("/music.mp3");
+    audio.current = new Audio("/music.wav");
     audio.current.loop = true;
     return () => audio.current?.pause();
   }, []);
@@ -428,12 +429,20 @@ export default function Page() {
           {bubble || "pet me!"}
         </div>
       </div>
-      <button
-        onClick={toggleMusic}
-        className={`btn-base btn-focus fixed bottom-[calc(env(safe-area-inset-bottom,0px)+22px)] right-5 z-10 flex-[0_0_auto] px-5 py-2.5 text-[15px] ${t.soft} ${t.softText}`}
-      >
-        {musicOn ? "⏸ music" : "▶ music"}
-      </button>
+      <div className="fixed right-5 bottom-[calc(env(safe-area-inset-bottom,0px)+22px)] z-10 flex flex-[0_0_auto] flex-col items-end gap-2">
+        <button
+          onClick={toggleMusic}
+          className={`btn-base btn-focus px-5 py-2.5 text-[15px] ${t.soft} ${t.softText}`}
+        >
+          {musicOn ? "⏸ music" : "▶ music"}
+        </button>
+        <Link
+          href="/create"
+          className={`btn-base btn-focus px-5 py-2.5 text-[15px] ${t.soft} ${t.softText}`}
+        >
+          ✍️ Create your own
+        </Link>
+      </div>
 
       {/* ---- main card ---- */}
       <div className={`invite-card ${t.card}`}>
