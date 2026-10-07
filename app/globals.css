@@ -296,6 +296,24 @@ body {
   animation: trail 0.9s ease-out forwards;
 }
 
+@keyframes sparkleFloat {
+  0% {
+    transform: translate(-50%, -50%) scale(1);
+    opacity: 1;
+  }
+  100% {
+    transform: translate(-50%, -150%) scale(1.6) rotate(20deg);
+    opacity: 0;
+  }
+}
+@utility sparkle {
+  position: fixed;
+  pointer-events: none;
+  opacity: 1;
+  transform: translate(-50%, -50%) scale(1);
+  animation: sparkleFloat 1.05s ease-out forwards;
+}
+
 @utility pet-face-anim {
   display: inline-block;
   line-height: 1;

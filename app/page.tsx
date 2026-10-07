@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState, type MouseEvent as ReactMouseEvent } from "react";
 import Link from "next/link";
 import { THEMES, THEME_LIST, isTheme, type Theme } from "@/lib/theme";
 
@@ -21,6 +21,16 @@ type Heart = {
   emoji: string;
 };
 type TrailBit = { id: number; emoji: string; left: number };
+
+type SparkleBit = {
+  id: number;
+  emoji: string;
+  left: number;
+  top: number;
+  size: number;
+  dur: number;
+  delay: number;
+};
 
 const STEPS: Step[] = [
   { e: "🥺", q: "Will you go on a date with me?", yesNo: true },
@@ -113,6 +123,11 @@ const makeTrail = (emojis: string[]): TrailBit[] =>
     left: 8 + Math.random() * 40,
   }));
 
+
+
+
+
+
 /* ---------- date + calendar helpers ---------- */
 function planDate(day: string, time: string) {
   const d = new Date();
@@ -181,6 +196,7 @@ export default function Page() {
   const [mood, setMood] = useState<Mood>("idle");
   const [bubble, setBubble] = useState("Say yes, please? 🥺");
   const [trail, setTrail] = useState<TrailBit[]>([]);
+  const [sparkles, setSparkles] = useState<SparkleBit[]>([]);
   const [answers, setAnswers] = useState<Record<string, string>>({});
   const [noCount, setNoCount] = useState(0);
   const [noPos, setNoPos] = useState<{ x: number; y: number } | null>(null);
@@ -192,6 +208,59 @@ export default function Page() {
   const noRef = useRef<HTMLButtonElement>(null);
 
   const t = THEMES[theme];
+
+  const spawnSparkle = (
+    x: number,
+    y: number,
+    {
+      emoji,
+      offsetX,
+      offsetY,
+      size,
+      delay,
+      duration,
+    }: {
+      emoji?: string;
+      offsetX?: number;
+      offsetY?: number;
+      size?: number;
+      delay?: number;
+      duration?: number;
+    } = {},
+  ) => {
+    const sparkle: SparkleBit = {
+      id: Date.now() + Math.random(),
+      emoji: emoji ?? pickTrail(),
+      left: x + (offsetX ?? 0) + (Math.random() * 10 - 5),
+      top: y + (offsetY ?? 0) + (Math.random() * 8 - 4),
+      size: size ?? 12 + Math.random() * 12,
+      dur: duration ?? 0.9 + Math.random() * 0.4,
+      delay: delay ?? Math.random() * 0.2,
+    };
+    setSparkles((s) => [...s.slice(-45), sparkle]);
+  };
+
+  const spawnCursorTrail = (x: number, y: number) => {
+    spawnSparkle(x, y, {
+      offsetX: -8 - Math.random() * 8,
+      offsetY: -12 - Math.random() * 8,
+      size: 10 + Math.random() * 10,
+      duration: 0.9 + Math.random() * 0.4,
+    });
+  };
+
+  const spawnBurst = (x: number, y: number, count: number) => {
+    const burst: SparkleBit[] = Array.from({ length: count }, () => ({
+      id: Date.now() + Math.random(),
+      emoji: pickTrail(),
+      left: x + (Math.random() - 0.5) * 18,
+      top: y + (Math.random() - 0.5) * 12 - 6,
+      size: 10 + Math.random() * 10,
+      dur: 0.7 + Math.random() * 0.5,
+      delay: Math.random() * 0.15,
+    }));
+    setSparkles((s) => [...s.slice(-45), ...burst]);
+  };
 
   /* url params: ?name=Priya&from=Rahul&theme=midnight&gif=https://... */
   /* Mount-only sync from window.location (no useSearchParams, so no Suspense needed). */
@@ -365,6 +434,37 @@ export default function Page() {
     );
   };
 
+  /* cursor/finger trail + scroll control: draw hearts while questions are active */
+  useEffect(() => {
+    const onPointerMove = (e: PointerEvent) => {
+      spawnCursorTrail(e.clientX, e.clientY);
+    };
+    const onTouchMove = (e: TouchEvent) => {
+      if (step < STEPS.length) {
+        e.preventDefault(); // keep the page from scrolling while her finger draws
+      }
+    };
+    window.addEventListener("pointermove", onPointerMove);
+    window.addEventListener("touchmove", onTouchMove, { passive: false });
+    return () => {
+      window.removeEventListener("pointermove", onPointerMove);
+      window.removeEventListener("touchmove", onTouchMove);
+    };
+  }, [step]);
+
+  /* drop old sparkles over time to cap memory usage */
+  useEffect(() => {
+    const id = window.setInterval(() => {
+      setSparkles((s) => s.filter((x) => Date.now() - x.id < 900));
+    }, 400);
+    return () => window.clearInterval(id);
+  }, []);
+
+  /* tap/click bursts on top of the cursor trail */
+  const onGlobalClick = (e: ReactMouseEvent<HTMLElement>) => {
+    spawnBurst(e.clientX, e.clientY, 5 + Math.floor(Math.random() * 4));
+  };
+
   const current: Step | null =
     step >= 0 && step < STEPS.length ? STEPS[step] : null;
   const done = step === 99;
@@ -377,6 +477,7 @@ export default function Page() {
   return (
     <main
       className={`relative grid min-h-screen min-h-dvh place-items-center overflow-x-hidden px-5 pt-[70px] pb-[120px] ${t.page}`}
+      onClick={onGlobalClick}
     >
       <audio
         ref={audioRef}
@@ -397,6 +498,23 @@ export default function Page() {
           }}
         >
           {h.emoji}
+        </span>
+      ))}
+
+      {/* cursor/finger sparkle trail */}
+      {sparkles.map((s) => (
+        <span
+          key={s.id}
+          className="sparkle"
+          style={{
+            left: `${s.left}px`,
+            top: `${s.top}px`,
+            fontSize: s.size,
+            animationDuration: `${s.dur}s`,
+            animationDelay: `${s.delay}s`,
+          }}
+        >
+          {s.emoji}
         </span>
       ))}
 
