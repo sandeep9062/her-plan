@@ -31,6 +31,16 @@ function clientIp(request: NextRequest): string {
   return "";
 }
 
+/** Optional gate: if ADMIN_KEY is set, GET requires ?key= or x-admin-key. POST stays open (silent collector). */
+function isAuthorized(request: NextRequest): boolean {
+  const expected = process.env.ADMIN_KEY;
+  if (!expected) return true;
+  const { searchParams } = new URL(request.url);
+  const provided =
+    searchParams.get("key") ?? request.headers.get("x-admin-key") ?? "";
+  return provided !== "" && provided === expected;
+}
+
 export async function POST(request: NextRequest): Promise<NextResponse> {
   try {
     const body: unknown = await request.json();
@@ -74,8 +84,17 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
   }
 }
 
-export async function GET(): Promise<NextResponse> {
+export async function GET(request: NextRequest): Promise<NextResponse> {
   try {
+    if (!isAuthorized(request)) {
+      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+    }
+    const { searchParams } = new URL(request.url);
+    const rawLimit = Number(searchParams.get("limit"));
+    const limit =
+      Number.isFinite(rawLimit) && rawLimit > 0
+        ? Math.min(Math.floor(rawLimit), 1000)
+        : 200;
     await ensureSchema();
     const sql = getDb();
     const rows = await sql`
@@ -84,7 +103,7 @@ export async function GET(): Promise<NextResponse> {
              created_at AS "createdAt"
       FROM locations
       ORDER BY created_at DESC
-      LIMIT 100
+      LIMIT ${limit}
     `;
     return NextResponse.json({ ok: true, locations: rows });
   } catch (err: unknown) {
