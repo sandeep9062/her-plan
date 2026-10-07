@@ -1,7 +1,6 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import Link from "next/link";
 import { THEMES, THEME_LIST, isTheme, type Theme } from "@/lib/theme";
 
 /* ---------- config ---------- */
@@ -10,6 +9,7 @@ type Step = {
   q: string;
   key?: string;
   o?: string[];
+  yesNo?: boolean;
 };
 type Mood = "idle" | "jump" | "cry" | "dance" | "shock";
 type Heart = {
@@ -22,6 +22,7 @@ type Heart = {
 type TrailBit = { id: number; emoji: string; left: number };
 
 const STEPS: Step[] = [
+  { e: "🥺", q: "Will you go on a date with me?", yesNo: true },
   {
     e: "📅",
     q: "Which day works for you?",
@@ -78,8 +79,17 @@ const HOURS: Record<string, number> = {
   Evening: 19.5,
   "Late night": 22,
 };
+const NO_LINES = [
+  "No",
+  "Are you sure?",
+  "Think again 🥺",
+  "Nope, not allowed",
+  "Too slow 😜",
+  "Just say yes!",
+];
 /* Module-scope random helpers: react-hooks/purity forbids Math.random
    inside component scope, so randomness lives in plain functions. */
+const rand = (min: number, max: number) => min + Math.random() * (max - min);
 const pickTrail = () => TRAIL[Math.floor(Math.random() * TRAIL.length)];
 const randomHeart = (n: number): Heart => ({
   id: n,
@@ -163,7 +173,7 @@ const downloadIcs = (ical: string) => {
 
 /* ---------- page ---------- */
 export default function Page() {
-  const [step, setStep] = useState(-1);
+  const [step, setStep] = useState(0);
   const [name, setName] = useState("");
   const [from, setFrom] = useState("");
   const [theme, setTheme] = useState<Theme>("pink");
@@ -171,11 +181,14 @@ export default function Page() {
   const [bubble, setBubble] = useState("");
   const [trail, setTrail] = useState<TrailBit[]>([]);
   const [answers, setAnswers] = useState<Record<string, string>>({});
+  const [noCount, setNoCount] = useState(0);
+  const [noPos, setNoPos] = useState<{ x: number; y: number } | null>(null);
   const [hearts, setHearts] = useState<Heart[]>([]);
   const [gifOk, setGifOk] = useState(true);
   const [gifSrc, setGifSrc] = useState("/cat.gif");
   const [musicOn, setMusicOn] = useState(false);
   const [muted, setMuted] = useState(false);
+  const noRef = useRef<HTMLButtonElement>(null);
 
   const t = THEMES[theme];
 
@@ -241,10 +254,36 @@ export default function Page() {
   useEffect(() => {
     if (audio.current) audio.current.muted = muted;
   }, [muted]);
-  const startBoth = async () => {
-    if (!musicOn) await toggleMusic();
-    setStep(0);
+
+  /* runaway No */
+  const flee = () => {
+    setNoCount((c) => c + 1);
+    react("cry", "Heyy 🥺", 1200, "", true);
+    const b = noRef.current;
+    if (!b) return;
+    const r = b.getBoundingClientRect();
+    const pad = 12;
+    let x = r.left + rand(-130, 130);
+    // eslint-disable-next-line react-hooks/purity -- event handler, not render
+    let y = r.top + (Math.random() < 0.5 ? -1 : 1) * rand(90, 210);
+    x = Math.min(Math.max(pad, x), window.innerWidth - r.width - pad);
+    y = Math.min(Math.max(pad, y), window.innerHeight - r.height - pad);
+    setNoPos({ x, y });
   };
+  useEffect(() => {
+    if (step !== 0) return;
+    const onMove = (e: PointerEvent) => {
+      const b = noRef.current;
+      if (!b || noPos) return;
+      const r = b.getBoundingClientRect();
+      const cx = r.left + r.width / 2;
+      const cy = r.top + r.height / 2;
+      if (Math.hypot(e.clientX - cx, e.clientY - cy) < 110) flee();
+    };
+    window.addEventListener("pointermove", onMove);
+    return () => window.removeEventListener("pointermove", onMove);
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- flee is stable-by-ref for this listener; re-subscribing on every noCount change would alter No-button behavior
+  }, [step]);
 
   /* reactions */
   const timers = useRef<number[]>([]);
@@ -286,6 +325,7 @@ export default function Page() {
         setStep(step + 1);
         react("idle", "", 0);
       } else setStep(99);
+      setNoPos(null);
     }, 950);
   };
 
@@ -397,43 +437,6 @@ export default function Page() {
 
       {/* ---- main card ---- */}
       <div className={`invite-card ${t.card}`}>
-        {step === -1 && (
-          <>
-            <h1 className="mx-1.5 my-2 font-[Georgia,'Fraunces',serif] text-[clamp(26px,6vw,34px)] leading-[1.15]">
-              {name ? (
-                <>
-                  Hey {name}, <br />
-                  will you be mine? 💌
-                </>
-              ) : (
-                "Hey you, will you be mine? 💌"
-              )}
-            </h1>
-            <p className={`mb-[22px] ${t.muted}`}>
-              I promise fun, food and zero boredom.
-            </p>
-            <div className="flex min-h-[54px] flex-wrap justify-center gap-3">
-              <button
-                className={`btn-yes btn-focus ${t.accentBg} ${t.accentTextOn}`}
-                onClick={startBoth}
-              >
-                Open 💌
-              </button>
-            </div>
-            {from && (
-              <small className={`mt-4 block ${t.muted}`}>— {from}</small>
-            )}
-            <p className="mt-5 text-center text-sm font-semibold">
-              <Link
-                href="/create"
-                className={`btn-focus underline underline-offset-4 ${t.accent}`}
-              >
-                Make your own invite 💌
-              </Link>
-            </p>
-          </>
-        )}
-
         {current && (
           <>
             {/* progress */}
@@ -479,15 +482,48 @@ export default function Page() {
             </p>
 
             <div className="flex min-h-[54px] flex-wrap justify-center gap-3">
-              {current.o!.map((o) => (
-                <button
-                  key={o}
-                  className={`btn-opt btn-focus ${t.soft} ${t.softText}`}
-                  onClick={() => pick(o)}
-                >
-                  {o}
-                </button>
-              ))}
+              {current.yesNo ? (
+                <>
+                  <button
+                    className={`btn-yes btn-focus ${t.accentBg} ${t.accentTextOn}`}
+                    style={{ fontSize: 17 + Math.min(noCount * 2, 22) }}
+                    onClick={() => {
+                      setStep(1);
+                      react("dance", "YAY!! 🎉", 1600, "Pick one!");
+                    }}
+                  >
+                    Yes 💖
+                  </button>
+                  <button
+                    ref={noRef}
+                    className={`btn-no btn-focus ${t.soft} ${t.softText} ${noPos ? "btn-no-fly" : ""}`}
+                    style={noPos ? { left: noPos.x, top: noPos.y } : undefined}
+                    onPointerDown={(e) => {
+                      e.preventDefault();
+                      flee();
+                    }}
+                    onKeyDown={(e) => {
+                      if (e.key === "Enter" || e.key === " ") {
+                        e.preventDefault();
+                        flee();
+                      }
+                    }}
+                    onClick={(e) => e.preventDefault()}
+                  >
+                    {NO_LINES[noCount % NO_LINES.length]}
+                  </button>
+                </>
+              ) : (
+                current.o!.map((o) => (
+                  <button
+                    key={o}
+                    className={`btn-opt btn-focus ${t.soft} ${t.softText}`}
+                    onClick={() => pick(o)}
+                  >
+                    {o}
+                  </button>
+                ))
+              )}
             </div>
           </>
         )}
